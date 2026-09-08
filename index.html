@@ -203,7 +203,7 @@
           const matchPref = p['Preferred'] ? p['Preferred'].toLowerCase().startsWith(query) : false;
           const matchTutor = (p['Tutor'] || '').toLowerCase() === query;
           const matchForm = (p['Form'] || '').toLowerCase() === query;
-          const matchRoom = (p['#Room'] || '').toLowerCase().startsWith(query);
+          const matchRoom = (p['#Room'] || '').toLowerCase().includes(query);
           const matchNotes = (p['Notes'] || '').toLowerCase().includes(query);
 
           return matchFirst || matchLast || matchPref || matchTutor || matchForm || matchRoom || matchNotes;
