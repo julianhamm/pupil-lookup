@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Pupil Lookup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: #f2f2f7; color: #1c1c1e; padding: 16px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+    
+    /* Search Bar Header */
+    .header { position: sticky; top: 0; width: 100%; max-width: 600px; background-color: #f2f2f7; z-index: 10; padding-bottom: 12px; }
+    .search-input { width: 100%; padding: 14px 18px; font-size: 18px; border: 1px solid #c7c7cc; border-radius: 12px; background: #ffffff; outline: none; box-shadow: 0 2px 8px rgba(0,0,0,0.05); -webkit-appearance: none; }
+    .search-input:focus { border-color: #007aff; }
+
+    /* Loading Overlay & Counter */
+    #loader { position: fixed; inset: 0; background: #ffffff; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; transition: opacity 0.3s ease; }
+    .spinner { width: 40px; height: 40px; border: 4px solid #e5e5ea; border-top: 4px solid #007aff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
+    .progress-bar-container { width: 200px; height: 8px; background: #e5e5ea; border-radius: 4px; overflow: hidden; margin-top: 12px; }
+    .progress-bar { height: 100%; width: 0%; background: #007aff; transition: width 0.1s linear; }
+    #loader-text { font-size: 15px; font-weight: 500; color: #8e8e93; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* Cards Layout Container */
+    #app-container { width: 100%; max-width: 600px; display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; margin-top: 8px; }
+
+    /* Pupil Card Styling */
+    .card { background: #ffffff; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); display: flex; flex-direction: column; align-items: center; text-align: center; padding-bottom: 8px; }
+    .card img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background-color: #e5e5ea; }
+    .card-name { font-size: 15px; font-weight: 600; color: #000000; margin: 8px 6px 2px 6px; line-height: 1.2; }
+    .card-footer { font-size: 12px; color: #6c6c70; padding: 0 6px; word-break: break-word; line-height: 1.3; margin-top: 2px; }
+  </style>
+</head>
+<body>
+
+  <div id="loader">
+    <div class="spinner"></div>
+    <div id="loader-text">Loading... 0 / 0</div>
+    <div class="progress-bar-container"><div id="progress-bar" class="progress-bar"></div></div>
+  </div>
+
+  <div class="header">
+    <input type="text" id="search" class="search-input" placeholder="Search pupil name..." autofocus autocomplete="off">
+  </div>
+
+  <div id="app-container"></div>
+
+  <script>
+    let pupils = [];
+    const SVG_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='%238e8e93'><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/></svg>";
+
+    // Comma-separated CSV parser
+    function parseCSV(text) {
+      const lines = text.trim().split('\n');
+      if (lines.length < 2) return [];
+      const headers = lines[0].split(',').map(h => h.trim());
+      
+      return lines.slice(1).map(line => {
+        const values = line.split(',').map(v => v.trim());
+        let record = {};
+        headers.forEach((h, i) => { record[h] = values[i] || ''; });
+        return record;
+      });
+    }
+
+    // Preload images with live UI counter
+    async function preloadImages(pupilList) {
+      let loadedCount = 0;
+      const total = pupilList.length;
+      const loaderText = document.getElementById('loader-text');
+      const progressBar = document.getElementById('progress-bar');
+
+      const updateProgress = () => {
+        loadedCount++;
+        loaderText.textContent = `Loading... ${loadedCount} / ${total}`;
+        progressBar.style.width = `${(loadedCount / total) * 100}%`;
+        if (loadedCount >= total) {
+          const loader = document.getElementById('loader');
+          loader.style.opacity = '0';
+          setTimeout(() => loader.style.display = 'none', 300);
+        }
+      };
+
+      pupilList.forEach(pupil => {
+        const img = new Image();
+        const imgPath = `photos/${pupil['Img name']}`;
+        img.src = imgPath;
+        img.onload = () => { pupil.resolvedImg = imgPath; updateProgress(); };
+        img.onerror = () => { pupil.resolvedImg = SVG_AVATAR; updateProgress(); };
+      });
+    }
+
+    // Render cards dynamic grid
+    function renderPupils(filteredList) {
+      const container = document.getElementById('app-container');
+      container.innerHTML = '';
+
+      filteredList.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        // Extract raw vs hash-prefixed metadata
+        const metadataParts = [];
+        Object.keys(p).forEach(key => {
+          if (['First', 'Last', 'Preferred', 'Img name', 'resolvedImg'].includes(key)) return;
+          const val = p[key];
+          if (!val) return;
+          if (key.startsWith('#')) {
+            metadataParts.push(`${key.substring(1)}: ${val}`);
+          } else {
+            metadataParts.push(val);
+          }
+        });
+
+        const displayName = p['Preferred'] ? `${p['First']} (${p['Preferred']}) ${p['Last']}` : `${p['First']} ${p['Last']}`;
+        const footerText = metadataParts.join(' · ');
+
+        card.innerHTML = `
+          <img src="${p.resolvedImg || SVG_AVATAR}" alt="${displayName}" loading="lazy">
+          <div class="card-name">${displayName}</div>
+          <div class="card-footer">${footerText}</div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // 1-character prefix search logic
+    function setupSearch() {
+      const searchInput = document.getElementById('search');
+      searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        if (!query) {
+          renderPupils(pupils);
+          return;
+        }
+        const filtered = pupils.filter(p => {
+          const matchFirst = p['First'].toLowerCase().startsWith(query);
+          const matchLast = p['Last'].toLowerCase().startsWith(query);
+          const matchPref = p['Preferred'] ? p['Preferred'].toLowerCase().startsWith(query) : false;
+          return matchFirst || matchLast || matchPref;
+        });
+        renderPupils(filtered);
+      });
+    }
+
+    // Initialize application
+    async function init() {
+      try {
+        const response = await fetch('abbey_house.csv');
+        const csvText = await response.text();
+        pupils = parseCSV(csvText);
+        preloadImages(pupils);
+        renderPupils(pupils);
+        setupSearch();
+      } catch (err) {
+        document.getElementById('loader-text').textContent = "Error loading pupil data.";
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
